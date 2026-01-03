@@ -17,7 +17,8 @@ enum PomodoroState {
 @action({ UUID: "se.oscarb.pomodoro.increment" })
 export class Pomodoro extends SingletonAction<PomodoroSettings> {
 	private state: PomodoroState = PomodoroState.IDLE_WORK;
-	private remainingSeconds: number = 25 * 60;
+	private targetEndTime: number = 0; // Timestamp in ms
+	private remainingSeconds: number = 25 * 60; // For display and state tracking
 	private timer: NodeJS.Timeout | null = null;
 	private holdTimeout: NodeJS.Timeout | null = null;
 	private didReset: boolean = false;
@@ -70,7 +71,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 			case PomodoroState.IDLE_WORK:
 				this.state = PomodoroState.RUNNING_WORK;
 				this.remainingSeconds = workMins * 60;
-				this.startTimer(ev);
+				this.startTimer(ev, this.remainingSeconds);
 				break;
 			case PomodoroState.RUNNING_WORK:
 				// Optional: Pause? Or do nothing?
@@ -78,7 +79,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 			case PomodoroState.IDLE_BREAK:
 				this.state = PomodoroState.RUNNING_BREAK;
 				this.remainingSeconds = breakMins * 60;
-				this.startTimer(ev);
+				this.startTimer(ev, this.remainingSeconds);
 				break;
 			case PomodoroState.RUNNING_BREAK:
 				// Same as WORK, click does nothing
@@ -87,17 +88,27 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		await this.updateView(ev);
 	}
 
-	private startTimer(ev: any) { // ev is needed for context to update view
+	private startTimer(ev: any, durationSeconds: number) {
 		if (this.timer) clearInterval(this.timer);
+
+		this.targetEndTime = Date.now() + durationSeconds * 1000;
+
+		// Update frequency: 20fps = 50ms. 
 		this.timer = setInterval(async () => {
-			this.remainingSeconds--;
-			if (this.remainingSeconds <= 0) {
+			const now = Date.now();
+			const diffMs = this.targetEndTime - now;
+			const diffSec = Math.ceil(diffMs / 1000);
+
+			if (diffMs <= 0) {
 				this.stopTimer();
+				this.remainingSeconds = 0;
 				await this.handleTimerComplete(ev);
 			} else {
-				await this.updateView(ev);
+				this.remainingSeconds = diffSec;
+				// Pass exact float for smooth animation
+				await this.updateView(ev, diffMs / 1000);
 			}
-		}, 1000);
+		}, 50);
 	}
 
 	private stopTimer() {
@@ -124,12 +135,15 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		await this.updateView(ev);
 	}
 
-	private async updateView(ev: any) {
-		const title = this.formatTime(this.remainingSeconds);
-		await ev.action.setTitle(""); // Clear default title, using SVG text instead (step 90)
+	private async updateView(ev: any, exactSeconds?: number) {
+		// Use exactSeconds for progress bar if available, otherwise use remainingSeconds
+		const secs = exactSeconds !== undefined ? exactSeconds : this.remainingSeconds;
+
+		const title = this.formatTime(this.remainingSeconds); // Title always uses integer seconds
+		await ev.action.setTitle("");
 
 		const totalSeconds = this.getTotalSecondsForCurrentState(ev.payload.settings);
-		const progress = Math.max(0, Math.min(1, this.remainingSeconds / totalSeconds));
+		const progress = Math.max(0, Math.min(1, secs / totalSeconds));
 
 		const svg = this.generateSvg(progress, this.state, title);
 		const icon = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
@@ -182,28 +196,18 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 			</defs>
 		`;
 
-		// Track larger: stroke-width 10
-		// 36 (center) + 31 (radius) + 5 (half stroke) = 72. Fits exactly.
 		const r = 31;
 		const c = 36;
 		const circ = 2 * Math.PI * r;
 		const offset = circ * (1 - progress);
 
-		// Progress Circle
-		// Deplete clockwise: Mirror the circle horizontally
-		// transform-origin is center (36 36) in the transform attribute logic or implicitly?
-		// We use translate/scale trick to mirror around vertical center of 72 width.
-		// transform="translate(72, 0) scale(-1, 1)" moves 0->72, duplicates mirror.
-
 		const fgGroup = `<g transform="translate(72, 0) scale(-1, 1)">
 			<circle cx="${c}" cy="${c}" r="${r}" stroke="url(#grad)" stroke-width="10" fill="none" 
 			stroke-dasharray="${circ}" stroke-dashoffset="${offset}" 
-			transform="rotate(-90 ${c} ${c})" stroke-linecap="butt" />
+			transform="rotate(-90 ${c} ${c})" stroke-linecap="round" />
 		</g>`;
 
 		// Text
-		// Larger text. Center aligned.
-		// Font size 28 usually good for 2 digits. 24 for 3.
 		const fontSize = text.length > 2 ? 24 : 28;
 		// Manually adjust Y to center: Center(36) + approx 1/3 font size (9) = 45
 		const timeText = `<text x="${c}" y="${c + 9}" font-family="sans-serif" font-weight="bold" font-size="${fontSize}" fill="white" text-anchor="middle">${text}</text>`;
