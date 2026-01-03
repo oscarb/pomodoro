@@ -116,7 +116,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		this.timer = setInterval(async () => {
 			const now = Date.now();
 			const diffMs = this.targetEndTime - now;
-			const diffSec = Math.ceil(diffMs / 1000);
+			const diffSec = Math.floor(diffMs / 1000); // Use floor instead of ceil
 
 			if (diffMs <= 0) {
 				this.stopTimer();
@@ -210,7 +210,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		if (seconds < 60) {
 			return `${seconds}`; // No suffix
 		}
-		const m = Math.ceil(seconds / 60);
+		const m = Math.floor(seconds / 60); // Use floor for minutes
 		return `${m}`; // No suffix
 	}
 
