@@ -19,12 +19,13 @@ enum PomodoroState {
 @action({ UUID: "se.oscarb.pomodoro.increment" })
 export class Pomodoro extends SingletonAction<PomodoroSettings> {
 	private state: PomodoroState = PomodoroState.IDLE_WORK;
+	private currentCycle: number = 0; // 0-3
 	private targetEndTime: number = 0; // Timestamp in ms
 	private remainingSeconds: number = 25 * 60; // For display and state tracking
 	private timer: NodeJS.Timeout | null = null;
 	private pauseAnimationTimer: NodeJS.Timeout | null = null;
 	private holdTimeout: NodeJS.Timeout | null = null;
-	private didReset: boolean = false;
+	private didHoldAction: boolean = false;
 
 	// Default settings
 	private readonly DEFAULT_WORK_MINS = 25;
@@ -36,12 +37,16 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 	}
 
 	override async onKeyDown(ev: KeyDownEvent<PomodoroSettings>): Promise<void> {
-		this.didReset = false;
+		this.didHoldAction = false;
 		// Start long-press detection
 		this.holdTimeout = setTimeout(async () => {
-			this.didReset = true;
-			await this.reset(ev);
-		}, 1500); // 1.5s hold to reset
+			this.didHoldAction = true;
+			if (this.state === PomodoroState.PAUSED_WORK || this.state === PomodoroState.PAUSED_BREAK) {
+				await this.advanceNextStep(ev);
+			} else {
+				await this.reset(ev);
+			}
+		}, 1500); // 1.5s hold to perform action
 	}
 
 	override async onKeyUp(ev: KeyUpEvent<PomodoroSettings>): Promise<void> {
@@ -50,8 +55,8 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 			this.holdTimeout = null;
 		}
 
-		if (this.didReset) {
-			// Already reset, do nothing
+		if (this.didHoldAction) {
+			// Already performed hold action, do nothing
 			return;
 		}
 
@@ -62,9 +67,15 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		this.stopTimer();
 		this.stopPauseAnimation();
 		this.state = PomodoroState.IDLE_WORK;
+		this.currentCycle = 0;
 		const workMins = parseInt(ev.payload.settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
 		this.remainingSeconds = workMins * 60;
 		await this.updateView(ev);
+	}
+
+	private async advanceNextStep(ev: any) {
+		this.stopPauseAnimation();
+		await this.handleTimerComplete(ev);
 	}
 
 	private async handleShortPress(ev: KeyUpEvent<PomodoroSettings>) {
@@ -162,6 +173,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 			this.remainingSeconds = breakMins * 60;
 		} else if (this.state === PomodoroState.RUNNING_BREAK || this.state === PomodoroState.PAUSED_BREAK) {
 			this.state = PomodoroState.IDLE_WORK;
+			this.currentCycle = (this.currentCycle + 1) % 4; // Increment cycle after break
 			const workMins = parseInt(ev.payload.settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
 			this.remainingSeconds = workMins * 60;
 		}
@@ -186,7 +198,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 
 		// Global opacity for final fade-out
 		let globalOpacity = 1;
-		if (secs < 1) {
+		if (secs < 2) {
 			globalOpacity = Math.max(0, secs);
 		}
 
@@ -278,26 +290,33 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		// Manually adjust Y to center: Center(36) + approx 1/3 font size
 		const timeText = `<text x="${c}" y="${c + yOffset}" font-family="sans-serif" font-weight="bold" font-size="${fontSize}" fill="white" opacity="${contentOpacity}" text-anchor="middle">${text}</text>`;
 
-		// Indicator (Running dot or Pause icon)
-		let indicator = "";
-		if (isRunning) {
-			// Pulse
-			const now = Date.now();
-			const opacity = 0.6 + 0.4 * Math.sin(now / 600);
-			indicator = `<circle cx="${c}" cy="52" r="3" fill="url(#grad)" opacity="${opacity}" />`;
-		} else if (isPaused) {
-			// Pause Icon (Small two vertical bars)
-			const barWidth = 2;
-			const barHeight = 6;
-			const gap = 2;
-			const x1 = c - gap / 2 - barWidth;
-			const x2 = c + gap / 2;
-			const y = 52 - barHeight / 2;
+		// Indicator (Cycles / Status indicators)
+		let indicators = "";
+		const startX = 27;
+		const spacing = 6;
+		const y = 52;
+		const r_ind = 2;
 
-			indicator = `
-				<rect x="${x1}" y="${y}" width="${barWidth}" height="${barHeight}" fill="url(#grad)" />
-				<rect x="${x2}" y="${y}" width="${barWidth}" height="${barHeight}" fill="url(#grad)" />
-			`;
+		// Work Gradient colors for "completed" fills
+		const workStart = "#FF512F";
+		// Break color for "completed" fills
+		const breakStart = "#11998e";
+
+		for (let i = 0; i < 4; i++) {
+			const cx = startX + i * spacing;
+			if (i < this.currentCycle) {
+				// Completed cycle: Solid green/cyan (Break color)
+				indicators += `<circle cx="${cx}" cy="${y}" r="${r_ind}" fill="${breakStart}" />`;
+			} else if (i === this.currentCycle) {
+				// Current cycle
+				// Pulsate only if running, otherwise solid
+				const now = Date.now();
+				const opacity = (isRunning && !isPaused) ? (0.6 + 0.4 * Math.sin(now / 600)) : 1;
+				indicators += `<circle cx="${cx}" cy="${y}" r="${r_ind}" fill="url(#grad)" opacity="${opacity}" />`;
+			} else {
+				// Inactive cycle: Gray/White with low opacity
+				indicators += `<circle cx="${cx}" cy="${y}" r="${r_ind}" fill="white" opacity="0.2" />`;
+			}
 		}
 
 		return `<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
@@ -305,7 +324,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 			<g opacity="${globalOpacity}">
 				${fgGroup}
 				${timeText}
-				${indicator}
+				${indicators}
 			</g>
 		</svg>`;
 	}
