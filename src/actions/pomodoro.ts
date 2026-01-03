@@ -196,20 +196,18 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 
 		// Content opacity for transition at 60s (fade out "1" as it hits 60)
 		let contentOpacity = 1;
-		const isRunningOrPaused = [
+		const isRunning = [
 			PomodoroState.RUNNING_WORK,
-			PomodoroState.RUNNING_BREAK,
-			PomodoroState.PAUSED_WORK,
-			PomodoroState.PAUSED_BREAK
+			PomodoroState.RUNNING_BREAK
 		].includes(this.state);
 
-		if (isRunningOrPaused && secs >= 60 && secs < 61) {
+		if (isRunning && secs >= 60 && secs < 61) {
 			contentOpacity = secs - 60; // Fade out "1"
 		}
 
 		// Global opacity for final fade-out
 		let globalOpacity = 1;
-		if (secs < 2) {
+		if (isRunning && secs < 2) {
 			globalOpacity = Math.max(0, secs);
 		}
 
