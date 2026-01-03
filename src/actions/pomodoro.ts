@@ -4,6 +4,7 @@ import { exec } from "child_process";
 type PomodoroSettings = {
 	workTime?: string; // Stored as string to handle input field easily, converted to number
 	breakTime?: string;
+	numCycles?: string;
 	soundEnabled?: boolean;
 };
 
@@ -177,7 +178,8 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 			this.remainingSeconds = breakMins * 60;
 		} else if (this.state === PomodoroState.RUNNING_BREAK || this.state === PomodoroState.PAUSED_BREAK) {
 			this.state = PomodoroState.IDLE_WORK;
-			this.currentCycle = (this.currentCycle + 1) % 4; // Increment cycle after break
+			const numCycles = parseInt(ev.payload.settings.numCycles ?? "4") || 4;
+			this.currentCycle = (this.currentCycle + 1) % numCycles; // Increment cycle after break
 			const workMins = parseInt(ev.payload.settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
 			this.remainingSeconds = workMins * 60;
 		}
@@ -211,7 +213,8 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 			globalOpacity = Math.max(0, secs);
 		}
 
-		const svg = this.generateSvg(progress, this.state, title, this.remainingSeconds < 60, contentOpacity, globalOpacity);
+		const numCycles = Math.min(4, Math.max(1, parseInt(ev.payload.settings.numCycles ?? "4") || 4));
+		const svg = this.generateSvg(progress, this.state, title, this.remainingSeconds < 60, contentOpacity, globalOpacity, numCycles);
 		const icon = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 		await ev.action.setImage(icon);
 	}
@@ -247,7 +250,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		return `${m}`; // No suffix
 	}
 
-	private generateSvg(progress: number, state: PomodoroState, text: string, isSeconds: boolean = false, contentOpacity: number = 1, globalOpacity: number = 1): string {
+	private generateSvg(progress: number, state: PomodoroState, text: string, isSeconds: boolean = false, contentOpacity: number = 1, globalOpacity: number = 1, numCycles: number = 4): string {
 		const isWork = [PomodoroState.RUNNING_WORK, PomodoroState.IDLE_WORK, PomodoroState.PAUSED_WORK].includes(state);
 		const isRunning = (state === PomodoroState.RUNNING_WORK || state === PomodoroState.RUNNING_BREAK);
 		const isPaused = (state === PomodoroState.PAUSED_WORK || state === PomodoroState.PAUSED_BREAK);
@@ -279,7 +282,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		}
 
 		const fgGroup = `<g transform="translate(72, 0) scale(-1, 1)" opacity="${pulseOpacity}">
-			<circle cx="${c}" cy="${c}" r="${r}" stroke="url(#grad)" stroke-width="10" fill="none" 
+			<circle cx="${c}" cy="${c}" r="${r}" stroke="url(#grad)" stroke-width="8" fill="none" 
 			stroke-dasharray="${circ}" stroke-dashoffset="${offset}" 
 			transform="rotate(-90 ${c} ${c})" stroke-linecap="round" />
 		</g>`;
@@ -301,17 +304,18 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 
 		// Indicator (Cycles / Status indicators)
 		let indicators = "";
-		const startX = 27;
-		const spacing = 6;
+		const spacing = 8;
+		const r_ind = 3;
+		const totalWidth = (numCycles - 1) * spacing;
+		const startX = 36 - (totalWidth / 2);
 		const y = 52;
-		const r_ind = 2;
 
 		// Work Gradient colors for "completed" fills
 		const workStart = "#FF512F";
 		// Break color for "completed" fills
 		const breakStart = "#11998e";
 
-		for (let i = 0; i < 4; i++) {
+		for (let i = 0; i < numCycles; i++) {
 			const cx = startX + i * spacing;
 			if (i < this.currentCycle) {
 				// Completed cycle: Solid green/cyan (Break color)
