@@ -178,7 +178,13 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		const totalSeconds = this.getTotalSecondsForCurrentState(ev.payload.settings);
 		const progress = Math.max(0, Math.min(1, secs / totalSeconds));
 
-		const svg = this.generateSvg(progress, this.state, title, this.remainingSeconds < 60);
+		// Content opacity for transition at 60s
+		let contentOpacity = 1;
+		if (secs >= 60 && secs < 61) {
+			contentOpacity = secs - 60; // Fade out "1"
+		}
+
+		const svg = this.generateSvg(progress, this.state, title, this.remainingSeconds < 60, contentOpacity);
 		const icon = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 		await ev.action.setImage(icon);
 	}
@@ -214,7 +220,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		return `${m}`; // No suffix
 	}
 
-	private generateSvg(progress: number, state: PomodoroState, text: string, isSeconds: boolean = false): string {
+	private generateSvg(progress: number, state: PomodoroState, text: string, isSeconds: boolean = false, contentOpacity: number = 1): string {
 		const isWork = [PomodoroState.RUNNING_WORK, PomodoroState.IDLE_WORK, PomodoroState.PAUSED_WORK].includes(state);
 		const isRunning = (state === PomodoroState.RUNNING_WORK || state === PomodoroState.RUNNING_BREAK);
 		const isPaused = (state === PomodoroState.PAUSED_WORK || state === PomodoroState.PAUSED_BREAK);
@@ -264,7 +270,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		}
 
 		// Manually adjust Y to center: Center(36) + approx 1/3 font size
-		const timeText = `<text x="${c}" y="${c + yOffset}" font-family="sans-serif" font-weight="bold" font-size="${fontSize}" fill="white" text-anchor="middle">${text}</text>`;
+		const timeText = `<text x="${c}" y="${c + yOffset}" font-family="sans-serif" font-weight="bold" font-size="${fontSize}" fill="white" opacity="${contentOpacity}" text-anchor="middle">${text}</text>`;
 
 		// Indicator (Running dot or Pause icon)
 		let indicator = "";
