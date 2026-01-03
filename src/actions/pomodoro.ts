@@ -178,7 +178,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		const totalSeconds = this.getTotalSecondsForCurrentState(ev.payload.settings);
 		const progress = Math.max(0, Math.min(1, secs / totalSeconds));
 
-		const svg = this.generateSvg(progress, this.state, title);
+		const svg = this.generateSvg(progress, this.state, title, this.remainingSeconds < 60);
 		const icon = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 		await ev.action.setImage(icon);
 	}
@@ -214,7 +214,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		return `${m}`; // No suffix
 	}
 
-	private generateSvg(progress: number, state: PomodoroState, text: string): string {
+	private generateSvg(progress: number, state: PomodoroState, text: string, isSeconds: boolean = false): string {
 		const isWork = [PomodoroState.RUNNING_WORK, PomodoroState.IDLE_WORK, PomodoroState.PAUSED_WORK].includes(state);
 		const isRunning = (state === PomodoroState.RUNNING_WORK || state === PomodoroState.RUNNING_BREAK);
 		const isPaused = (state === PomodoroState.PAUSED_WORK || state === PomodoroState.PAUSED_BREAK);
@@ -252,11 +252,19 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		</g>`;
 
 		// Text
-		const fontSize = text.length > 2 ? 24 : 28;
+		// Base font size is 28 for minutes
+		// If it's seconds, make it smaller (e.g. 20)
+		let fontSize = 28;
+		let yOffset = 9;
+		if (isSeconds) {
+			fontSize = 20;
+			yOffset = 7;
+		} else if (text.length > 2) {
+			fontSize = 24;
+		}
 
-		// Manually adjust Y to center: Center(36) + approx 1/3 font size (9) = 45
-		// Text remains fully opaque
-		const timeText = `<text x="${c}" y="${c + 9}" font-family="sans-serif" font-weight="bold" font-size="${fontSize}" fill="white" text-anchor="middle">${text}</text>`;
+		// Manually adjust Y to center: Center(36) + approx 1/3 font size
+		const timeText = `<text x="${c}" y="${c + yOffset}" font-family="sans-serif" font-weight="bold" font-size="${fontSize}" fill="white" text-anchor="middle">${text}</text>`;
 
 		// Indicator (Running dot or Pause icon)
 		let indicator = "";
