@@ -1,20 +1,23 @@
 <!DOCTYPE html>
 <html>
+
 <head lang="en">
     <title>Pomodoro Settings</title>
     <meta charset="utf-8" />
     <script src="https://sdpi-components.dev/releases/v4/sdpi-components.js"></script>
 </head>
+
 <body>
-    <sdpi-item label="Work Time (min)">
-        <sdpi-textfield setting="workTime" placeholder="25" pattern="[0-9]*" inputmode="numeric"></sdpi-textfield>
+    <sdpi-item label="Work Time (minutes)">
+        <sdpi-textfield setting="workTime" placeholder="25" type="number" min="0" max="999"></sdpi-textfield>
     </sdpi-item>
-    <sdpi-item label="Break Time (min)">
-        <sdpi-textfield setting="breakTime" placeholder="5" pattern="[0-9]*" inputmode="numeric"></sdpi-textfield>
+    <sdpi-item label="Break Time (minutes)">
+        <sdpi-textfield setting="breakTime" placeholder="5" type="number" min="0" max="999"></sdpi-textfield>
     </sdpi-item>
-     <sdpi-item label="Sound">
+    <sdpi-item label="Sound">
         <sdpi-checkbox setting="soundEnabled" checked></sdpi-checkbox>
         <label for="soundEnabled">Play sound on finish</label>
     </sdpi-item>
 </body>
+
 </html>
