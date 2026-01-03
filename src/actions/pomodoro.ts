@@ -1,4 +1,4 @@
-import { action, KeyDownEvent, KeyUpEvent, SingletonAction, WillAppearEvent } from "@elgato/streamdeck";
+import { action, DidReceiveSettingsEvent, KeyDownEvent, KeyUpEvent, SingletonAction, WillAppearEvent } from "@elgato/streamdeck";
 import { exec } from "child_process";
 
 type PomodoroSettings = {
@@ -36,6 +36,10 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		await this.updateView(ev);
 	}
 
+	override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<PomodoroSettings>): Promise<void> {
+		await this.reset(ev);
+	}
+
 	override async onKeyDown(ev: KeyDownEvent<PomodoroSettings>): Promise<void> {
 		this.didHoldAction = false;
 		// Start long-press detection
@@ -63,7 +67,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		await this.handleShortPress(ev);
 	}
 
-	private async reset(ev: KeyDownEvent<PomodoroSettings> | KeyUpEvent<PomodoroSettings>) {
+	private async reset(ev: any) {
 		this.stopTimer();
 		this.stopPauseAnimation();
 		this.state = PomodoroState.IDLE_WORK;
