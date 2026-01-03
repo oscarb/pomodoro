@@ -4,11 +4,11 @@
 	"Author": "oscarb",
 	"Actions": [
 		{
-			"Name": "Counter",
+			"Name": "Pomodoro Timer",
 			"UUID": "se.oscarb.pomodoro.increment",
 			"Icon": "imgs/actions/counter/icon",
-			"Tooltip": "Displays a count, which increments by one on press.",
-			"PropertyInspectorPath": "ui/increment-counter.html",
+			"Tooltip": "Pomodoro Timer",
+			"PropertyInspectorPath": "ui/pomodoro.html",
 			"Controllers": [
 				"Keypad"
 			],
