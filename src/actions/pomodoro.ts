@@ -184,7 +184,13 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 			contentOpacity = secs - 60; // Fade out "1"
 		}
 
-		const svg = this.generateSvg(progress, this.state, title, this.remainingSeconds < 60, contentOpacity);
+		// Global opacity for final fade-out
+		let globalOpacity = 1;
+		if (secs < 1) {
+			globalOpacity = Math.max(0, secs);
+		}
+
+		const svg = this.generateSvg(progress, this.state, title, this.remainingSeconds < 60, contentOpacity, globalOpacity);
 		const icon = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 		await ev.action.setImage(icon);
 	}
@@ -220,7 +226,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		return `${m}`; // No suffix
 	}
 
-	private generateSvg(progress: number, state: PomodoroState, text: string, isSeconds: boolean = false, contentOpacity: number = 1): string {
+	private generateSvg(progress: number, state: PomodoroState, text: string, isSeconds: boolean = false, contentOpacity: number = 1, globalOpacity: number = 1): string {
 		const isWork = [PomodoroState.RUNNING_WORK, PomodoroState.IDLE_WORK, PomodoroState.PAUSED_WORK].includes(state);
 		const isRunning = (state === PomodoroState.RUNNING_WORK || state === PomodoroState.RUNNING_BREAK);
 		const isPaused = (state === PomodoroState.PAUSED_WORK || state === PomodoroState.PAUSED_BREAK);
@@ -296,9 +302,11 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 
 		return `<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
 			${defs}
-			${fgGroup}
-			${timeText}
-			${indicator}
+			<g opacity="${globalOpacity}">
+				${fgGroup}
+				${timeText}
+				${indicator}
+			</g>
 		</svg>`;
 	}
 }
