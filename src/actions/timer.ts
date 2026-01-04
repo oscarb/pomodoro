@@ -186,7 +186,11 @@ export class Timer extends SingletonAction<TimerSettings> {
 		await this.updateView(ev);
 	}
 
+	// Cache for last rendered state to avoid unnecessary updates
+	private lastState: any = {};
+
 	private async updateView(ev: any, exactSeconds?: number) {
+		const now = Date.now();
 		// Use exactSeconds for progress bar if available, otherwise use remainingSeconds
 		const secs = exactSeconds !== undefined ? exactSeconds : this.remainingSeconds;
 
@@ -213,8 +217,57 @@ export class Timer extends SingletonAction<TimerSettings> {
 			globalOpacity = Math.max(0, secs);
 		}
 
+		// Calculate pulse opacities
+		const isPaused = (this.state === TimerState.PAUSED_WORK || this.state === TimerState.PAUSED_BREAK);
+
+		// Main ring pulse (when paused)
+		let pulseOpacity = 1;
+		if (isPaused) {
+			// Quantize pulse to reduce update frequency 
+			// 0.5 to 1.0. Step 0.05
+			const rawPulse = 0.75 + 0.25 * Math.sin(now / 600);
+			pulseOpacity = Math.round(rawPulse * 20) / 20;
+		}
+
+		// Indicator dot pulse (when running)
+		// Current cycle indicator
+		let indicatorOpacity = 1;
+		if (this.currentCycle >= 0) { // Should always be true
+			const isIndicatorPulsing = (isRunning && !isPaused);
+			if (isIndicatorPulsing) {
+				const rawOpacity = 0.6 + 0.4 * Math.sin(now / 600);
+				indicatorOpacity = Math.round(rawOpacity * 20) / 20;
+			}
+		}
+
+		// Check if we need to update
+		// We track significant inputs for visual representation
+		// Round progress to roughly pixels
+		// Circumference is ~195. 0.5px precision -> ~400 steps
+		const progressStep = Math.round(progress * 400);
+
+		const newState = {
+			progressStep,
+			title,
+			contentOpacity: Math.round(contentOpacity * 20) / 20,
+			globalOpacity: Math.round(globalOpacity * 20) / 20,
+			pulseOpacity,
+			indicatorOpacity,
+			state: this.state, // State changes (colors) always trigger update
+			currentCycle: this.currentCycle
+		};
+
+		// Compare with last state
+		const isChanged = JSON.stringify(newState) !== JSON.stringify(this.lastState);
+
+		if (!isChanged) {
+			return; // Skip update
+		}
+
+		this.lastState = newState;
+
 		const numCycles = Math.min(4, Math.max(1, parseInt(ev.payload.settings.numCycles ?? "4") || 4));
-		const svg = this.generateSvg(progress, this.state, title, this.remainingSeconds < 60, contentOpacity, globalOpacity, numCycles);
+		const svg = this.generateSvg(progress, this.state, title, this.remainingSeconds < 60, contentOpacity, globalOpacity, numCycles, pulseOpacity, indicatorOpacity);
 		const icon = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 		await ev.action.setImage(icon);
 	}
@@ -250,10 +303,8 @@ export class Timer extends SingletonAction<TimerSettings> {
 		return `${m}`; // No suffix
 	}
 
-	private generateSvg(progress: number, state: TimerState, text: string, isSeconds: boolean = false, contentOpacity: number = 1, globalOpacity: number = 1, numCycles: number = 4): string {
+	private generateSvg(progress: number, state: TimerState, text: string, isSeconds: boolean, contentOpacity: number, globalOpacity: number, numCycles: number, pulseOpacity: number, indicatorOpacity: number): string {
 		const isWork = [TimerState.RUNNING_WORK, TimerState.IDLE_WORK, TimerState.PAUSED_WORK].includes(state);
-		const isRunning = (state === TimerState.RUNNING_WORK || state === TimerState.RUNNING_BREAK);
-		const isPaused = (state === TimerState.PAUSED_WORK || state === TimerState.PAUSED_BREAK);
 
 		// Work: Orange/Red Gradient
 		const colorStart = isWork ? "#FF512F" : "#11998e";
@@ -271,15 +322,6 @@ export class Timer extends SingletonAction<TimerSettings> {
 		const c = 36;
 		const circ = 2 * Math.PI * r;
 		const offset = circ * (1 - progress);
-
-		// Pulsation for pause state
-		let pulseOpacity = 1;
-		if (isPaused) {
-			const now = Date.now();
-			// Range 0.5 to 1.0 (Center 0.75, Amp 0.25)
-			// Slower pulse: /600
-			pulseOpacity = 0.75 + 0.25 * Math.sin(now / 600);
-		}
 
 		const fgGroup = `<g transform="translate(72, 0) scale(-1, 1)" opacity="${pulseOpacity}">
 			<circle cx="${c}" cy="${c}" r="${r}" stroke="url(#grad)" stroke-width="8" fill="none" 
@@ -322,10 +364,8 @@ export class Timer extends SingletonAction<TimerSettings> {
 				indicators += `<circle cx="${cx}" cy="${y}" r="${r_ind}" fill="${breakStart}" />`;
 			} else if (i === this.currentCycle) {
 				// Current cycle
-				// Pulsate only if running, otherwise solid
-				const now = Date.now();
-				const opacity = (isRunning && !isPaused) ? (0.6 + 0.4 * Math.sin(now / 600)) : 1;
-				indicators += `<circle cx="${cx}" cy="${y}" r="${r_ind}" fill="url(#grad)" opacity="${opacity}" />`;
+				// Use passed indicatorOpacity
+				indicators += `<circle cx="${cx}" cy="${y}" r="${r_ind}" fill="url(#grad)" opacity="${indicatorOpacity}" />`;
 			} else {
 				// Inactive cycle: Gray/White with low opacity
 				indicators += `<circle cx="${cx}" cy="${y}" r="${r_ind}" fill="white" opacity="0.2" />`;

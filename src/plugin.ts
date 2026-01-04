@@ -3,7 +3,7 @@ import streamDeck from "@elgato/streamdeck";
 import { Timer } from "./actions/timer";
 
 // We can enable "trace" logging so that all messages between the Stream Deck, and the plugin are recorded. When storing sensitive information
-streamDeck.logger.setLevel("trace");
+streamDeck.logger.setLevel("info");
 
 // Register the timer action.
 streamDeck.actions.registerAction(new Timer());
