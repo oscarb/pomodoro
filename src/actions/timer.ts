@@ -1,14 +1,14 @@
 import { action, DidReceiveSettingsEvent, KeyDownEvent, KeyUpEvent, SingletonAction, WillAppearEvent } from "@elgato/streamdeck";
 import { exec } from "child_process";
 
-type PomodoroSettings = {
+type TimerSettings = {
 	workTime?: string; // Stored as string to handle input field easily, converted to number
 	breakTime?: string;
 	numCycles?: string;
 	soundEnabled?: boolean;
 };
 
-enum PomodoroState {
+enum TimerState {
 	IDLE_WORK,   // Waiting to start Work
 	RUNNING_WORK,// Working
 	PAUSED_WORK, // Paused during Work
@@ -17,9 +17,9 @@ enum PomodoroState {
 	PAUSED_BREAK // Paused during Break
 }
 
-@action({ UUID: "se.oscarb.pomodoro.increment" })
-export class Pomodoro extends SingletonAction<PomodoroSettings> {
-	private state: PomodoroState = PomodoroState.IDLE_WORK;
+@action({ UUID: "se.oscarb.pomodoro.timer" })
+export class Timer extends SingletonAction<TimerSettings> {
+	private state: TimerState = TimerState.IDLE_WORK;
 	private currentCycle: number = 0; // 0-3
 	private targetEndTime: number = 0; // Timestamp in ms
 	private remainingSeconds: number = 25 * 60; // For display and state tracking
@@ -32,21 +32,21 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 	private readonly DEFAULT_WORK_MINS = 25;
 	private readonly DEFAULT_BREAK_MINS = 5;
 
-	override async onWillAppear(ev: WillAppearEvent<PomodoroSettings>): Promise<void> {
+	override async onWillAppear(ev: WillAppearEvent<TimerSettings>): Promise<void> {
 		this.updateStateFromSettings(ev.payload.settings);
 		await this.updateView(ev);
 	}
 
-	override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<PomodoroSettings>): Promise<void> {
+	override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<TimerSettings>): Promise<void> {
 		await this.reset(ev);
 	}
 
-	override async onKeyDown(ev: KeyDownEvent<PomodoroSettings>): Promise<void> {
+	override async onKeyDown(ev: KeyDownEvent<TimerSettings>): Promise<void> {
 		this.didHoldAction = false;
 		// Start long-press detection
 		this.holdTimeout = setTimeout(async () => {
 			this.didHoldAction = true;
-			if (this.state === PomodoroState.PAUSED_WORK || this.state === PomodoroState.PAUSED_BREAK) {
+			if (this.state === TimerState.PAUSED_WORK || this.state === TimerState.PAUSED_BREAK) {
 				await this.advanceNextStep(ev);
 			} else {
 				await this.reset(ev);
@@ -54,7 +54,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		}, 1500); // 1.5s hold to perform action
 	}
 
-	override async onKeyUp(ev: KeyUpEvent<PomodoroSettings>): Promise<void> {
+	override async onKeyUp(ev: KeyUpEvent<TimerSettings>): Promise<void> {
 		if (this.holdTimeout) {
 			clearTimeout(this.holdTimeout);
 			this.holdTimeout = null;
@@ -71,7 +71,7 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 	private async reset(ev: any) {
 		this.stopTimer();
 		this.stopPauseAnimation();
-		this.state = PomodoroState.IDLE_WORK;
+		this.state = TimerState.IDLE_WORK;
 		this.currentCycle = 0;
 		const workMins = parseInt(ev.payload.settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
 		this.remainingSeconds = workMins * 60;
@@ -83,38 +83,38 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		await this.handleTimerComplete(ev);
 	}
 
-	private async handleShortPress(ev: KeyUpEvent<PomodoroSettings>) {
+	private async handleShortPress(ev: KeyUpEvent<TimerSettings>) {
 		const workMins = parseInt(ev.payload.settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
 		const breakMins = parseInt(ev.payload.settings.breakTime ?? "5") || this.DEFAULT_BREAK_MINS;
 
 		switch (this.state) {
-			case PomodoroState.IDLE_WORK:
-				this.state = PomodoroState.RUNNING_WORK;
+			case TimerState.IDLE_WORK:
+				this.state = TimerState.RUNNING_WORK;
 				this.remainingSeconds = workMins * 60;
 				this.startTimer(ev, this.remainingSeconds);
 				break;
-			case PomodoroState.RUNNING_WORK:
-				this.state = PomodoroState.PAUSED_WORK;
+			case TimerState.RUNNING_WORK:
+				this.state = TimerState.PAUSED_WORK;
 				this.stopTimer(); // Pause
 				this.startPauseAnimation(ev);
 				break;
-			case PomodoroState.PAUSED_WORK:
-				this.state = PomodoroState.RUNNING_WORK;
+			case TimerState.PAUSED_WORK:
+				this.state = TimerState.RUNNING_WORK;
 				this.stopPauseAnimation();
 				this.startTimer(ev, this.remainingSeconds); // Resume
 				break;
-			case PomodoroState.IDLE_BREAK:
-				this.state = PomodoroState.RUNNING_BREAK;
+			case TimerState.IDLE_BREAK:
+				this.state = TimerState.RUNNING_BREAK;
 				this.remainingSeconds = breakMins * 60;
 				this.startTimer(ev, this.remainingSeconds);
 				break;
-			case PomodoroState.RUNNING_BREAK:
-				this.state = PomodoroState.PAUSED_BREAK;
+			case TimerState.RUNNING_BREAK:
+				this.state = TimerState.PAUSED_BREAK;
 				this.stopTimer(); // Pause
 				this.startPauseAnimation(ev);
 				break;
-			case PomodoroState.PAUSED_BREAK:
-				this.state = PomodoroState.RUNNING_BREAK;
+			case TimerState.PAUSED_BREAK:
+				this.state = TimerState.RUNNING_BREAK;
 				this.stopPauseAnimation();
 				this.startTimer(ev, this.remainingSeconds); // Resume
 				break;
@@ -172,12 +172,12 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 			exec("afplay /System/Library/Sounds/Glass.aiff"); // Built-in macOS sound
 		}
 
-		if (this.state === PomodoroState.RUNNING_WORK || this.state === PomodoroState.PAUSED_WORK) {
-			this.state = PomodoroState.IDLE_BREAK;
+		if (this.state === TimerState.RUNNING_WORK || this.state === TimerState.PAUSED_WORK) {
+			this.state = TimerState.IDLE_BREAK;
 			const breakMins = parseInt(ev.payload.settings.breakTime ?? "5") || this.DEFAULT_BREAK_MINS;
 			this.remainingSeconds = breakMins * 60;
-		} else if (this.state === PomodoroState.RUNNING_BREAK || this.state === PomodoroState.PAUSED_BREAK) {
-			this.state = PomodoroState.IDLE_WORK;
+		} else if (this.state === TimerState.RUNNING_BREAK || this.state === TimerState.PAUSED_BREAK) {
+			this.state = TimerState.IDLE_WORK;
 			const numCycles = parseInt(ev.payload.settings.numCycles ?? "4") || 4;
 			this.currentCycle = (this.currentCycle + 1) % numCycles; // Increment cycle after break
 			const workMins = parseInt(ev.payload.settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
@@ -199,8 +199,8 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		// Content opacity for transition at 60s (fade out "1" as it hits 60)
 		let contentOpacity = 1;
 		const isRunning = [
-			PomodoroState.RUNNING_WORK,
-			PomodoroState.RUNNING_BREAK
+			TimerState.RUNNING_WORK,
+			TimerState.RUNNING_BREAK
 		].includes(this.state);
 
 		if (isRunning && secs >= 60 && secs < 61) {
@@ -219,23 +219,23 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		await ev.action.setImage(icon);
 	}
 
-	private updateStateFromSettings(settings: PomodoroSettings) {
+	private updateStateFromSettings(settings: TimerSettings) {
 		// If we are IDLE, ensure remaining matches settings
 		const workMins = parseInt(settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
 		const breakMins = parseInt(settings.breakTime ?? "5") || this.DEFAULT_BREAK_MINS;
 
-		if (this.state === PomodoroState.IDLE_WORK) {
+		if (this.state === TimerState.IDLE_WORK) {
 			this.remainingSeconds = workMins * 60;
-		} else if (this.state === PomodoroState.IDLE_BREAK) {
+		} else if (this.state === TimerState.IDLE_BREAK) {
 			this.remainingSeconds = breakMins * 60;
 		}
 	}
 
-	private getTotalSecondsForCurrentState(settings: PomodoroSettings): number {
+	private getTotalSecondsForCurrentState(settings: TimerSettings): number {
 		const workMins = parseInt(settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
 		const breakMins = parseInt(settings.breakTime ?? "5") || this.DEFAULT_BREAK_MINS;
 
-		if ([PomodoroState.RUNNING_WORK, PomodoroState.IDLE_WORK, PomodoroState.PAUSED_WORK].includes(this.state)) {
+		if ([TimerState.RUNNING_WORK, TimerState.IDLE_WORK, TimerState.PAUSED_WORK].includes(this.state)) {
 			return workMins * 60;
 		} else {
 			return breakMins * 60;
@@ -250,10 +250,10 @@ export class Pomodoro extends SingletonAction<PomodoroSettings> {
 		return `${m}`; // No suffix
 	}
 
-	private generateSvg(progress: number, state: PomodoroState, text: string, isSeconds: boolean = false, contentOpacity: number = 1, globalOpacity: number = 1, numCycles: number = 4): string {
-		const isWork = [PomodoroState.RUNNING_WORK, PomodoroState.IDLE_WORK, PomodoroState.PAUSED_WORK].includes(state);
-		const isRunning = (state === PomodoroState.RUNNING_WORK || state === PomodoroState.RUNNING_BREAK);
-		const isPaused = (state === PomodoroState.PAUSED_WORK || state === PomodoroState.PAUSED_BREAK);
+	private generateSvg(progress: number, state: TimerState, text: string, isSeconds: boolean = false, contentOpacity: number = 1, globalOpacity: number = 1, numCycles: number = 4): string {
+		const isWork = [TimerState.RUNNING_WORK, TimerState.IDLE_WORK, TimerState.PAUSED_WORK].includes(state);
+		const isRunning = (state === TimerState.RUNNING_WORK || state === TimerState.RUNNING_BREAK);
+		const isPaused = (state === TimerState.PAUSED_WORK || state === TimerState.PAUSED_BREAK);
 
 		// Work: Orange/Red Gradient
 		const colorStart = isWork ? "#FF512F" : "#11998e";

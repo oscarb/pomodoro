@@ -5,7 +5,7 @@
 	"Actions": [
 		{
 			"Name": "Timer",
-			"UUID": "se.oscarb.pomodoro.increment",
+			"UUID": "se.oscarb.pomodoro.timer",
 			"Icon": "imgs/actions/timer/icon",
 			"Tooltip": "Pomodoro Timer",
 			"PropertyInspectorPath": "ui/pomodoro.html",
