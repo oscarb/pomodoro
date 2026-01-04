@@ -6,7 +6,7 @@
 		{
 			"Name": "Pomodoro Timer",
 			"UUID": "se.oscarb.pomodoro.increment",
-			"Icon": "imgs/actions/counter/icon",
+			"Icon": "imgs/actions/timer/icon",
 			"Tooltip": "Pomodoro Timer",
 			"PropertyInspectorPath": "ui/pomodoro.html",
 			"Controllers": [
@@ -14,7 +14,7 @@
 			],
 			"States": [
 				{
-					"Image": "imgs/actions/counter/key",
+					"Image": "imgs/actions/timer/key",
 					"TitleAlignment": "middle"
 				}
 			]
