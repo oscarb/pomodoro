@@ -168,7 +168,7 @@ export class Timer extends SingletonAction<TimerSettings> {
 	}
 
 	private async handleTimerComplete(ev: any) {
-		if (ev.payload.settings.soundEnabled !== false) { // Default true
+		if (ev.payload.settings.soundEnabled === true) {
 			exec("afplay /System/Library/Sounds/Glass.aiff"); // Built-in macOS sound
 		}
 
