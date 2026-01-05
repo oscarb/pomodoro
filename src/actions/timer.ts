@@ -171,6 +171,8 @@ export class Timer extends SingletonAction<RawTimerSettings> {
 				ctx.state = TimerState.RUNNING_WORK;
 				ctx.remainingSeconds = settings.workTime * 60;
 				this.startTimer(ev, ctx, ctx.remainingSeconds, settings);
+				// Start DND when work starts
+				this.setDoNotDisturb(true);
 				break;
 			case TimerState.RUNNING_WORK:
 				ctx.state = TimerState.PAUSED_WORK;
@@ -181,6 +183,8 @@ export class Timer extends SingletonAction<RawTimerSettings> {
 				ctx.state = TimerState.RUNNING_WORK;
 				this.stopPauseAnimation(ctx);
 				this.startTimer(ev, ctx, ctx.remainingSeconds, settings); // Resume
+				// Ensure DND is ON when resuming work
+				this.setDoNotDisturb(true);
 				break;
 			case TimerState.IDLE_BREAK:
 				ctx.state = TimerState.RUNNING_BREAK;
@@ -209,6 +213,8 @@ export class Timer extends SingletonAction<RawTimerSettings> {
 		}
 
 		if (ctx.state === TimerState.RUNNING_WORK || ctx.state === TimerState.PAUSED_WORK) {
+			// Work finished, turn off DND
+			this.setDoNotDisturb(false);
 			ctx.state = TimerState.IDLE_BREAK;
 			ctx.remainingSeconds = settings.breakTime * 60;
 		} else if (ctx.state === TimerState.RUNNING_BREAK || ctx.state === TimerState.PAUSED_BREAK) {
@@ -226,6 +232,8 @@ export class Timer extends SingletonAction<RawTimerSettings> {
 	private async reset(ev: ActionEvent, ctx: TimerContext, settings: ParsedTimerSettings) {
 		this.stopTimer(ctx);
 		this.stopPauseAnimation(ctx);
+		// Always ensure DND is off when resetting
+		this.setDoNotDisturb(false);
 		ctx.state = TimerState.IDLE_WORK;
 		ctx.currentCycle = 0;
 		ctx.remainingSeconds = settings.workTime * 60;
@@ -378,5 +386,32 @@ export class Timer extends SingletonAction<RawTimerSettings> {
 		
 		const icon = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 		await ev.action.setImage(icon);
+	}
+
+	private dndChain: Promise<void> = Promise.resolve();
+
+	private setDoNotDisturb(enable: boolean) {
+		this.dndChain = this.dndChain.then(() => {
+			return new Promise<void>((resolve) => {
+				if (process.platform === "darwin") {
+					const shortcut = enable ? "Turn Do Not Disturb on" : "Turn Do Not Disturb off";
+					console.log(`[Timer] Toggling DND ${enable ? "ON" : "OFF"} via shortcut: "${shortcut}"`);
+					exec(`/usr/bin/shortcuts run "${shortcut}"`, (error, stdout, stderr) => {
+						if (error) {
+							console.error(`[Timer] Failed to run shortcut "${shortcut}": ${error.message}`);
+						}
+						if (stderr) {
+							console.warn(`[Timer] Shortcut stderr: ${stderr}`);
+						}
+						if (stdout) {
+							console.log(`[Timer] Shortcut stdout: ${stdout}`);
+						}
+						resolve();
+					});
+				} else {
+					resolve();
+				}
+			});
+		});
 	}
 }
