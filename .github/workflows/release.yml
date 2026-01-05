@@ -31,6 +31,12 @@ jobs:
       - name: Install Stream Deck CLI
         run: npm install -g @elgato/cli
 
+      - name: Build
+        run: npm run build
+
+      - name: Validate
+        run: streamdeck validate se.oscarb.pomodoro.sdPlugin
+
       - name: Semantic Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
