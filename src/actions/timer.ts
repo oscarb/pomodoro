@@ -1,12 +1,30 @@
 import { action, DidReceiveSettingsEvent, KeyDownEvent, KeyUpEvent, SingletonAction, WillAppearEvent, WillDisappearEvent } from "@elgato/streamdeck";
 import { exec } from "child_process";
+import { z } from "zod";
 
-type TimerSettings = {
-	workTime?: string; // Stored as string to handle input field easily, converted to number
-	breakTime?: string;
-	numCycles?: string;
-	soundEnabled?: boolean;
-};
+// Define the schema for settings input (what comes from PI)
+// and transformation (what we use in code)
+const TimerSettingsSchema = z.object({
+	workTime: z.string().optional().transform(val => {
+		const parsed = parseInt(val ?? "25");
+		return isNaN(parsed) || parsed < 1 ? 25 : parsed;
+	}),
+	breakTime: z.string().optional().transform(val => {
+		const parsed = parseInt(val ?? "5");
+		return isNaN(parsed) || parsed < 1 ? 5 : parsed;
+	}),
+	numCycles: z.string().optional().transform(val => {
+		const parsed = parseInt(val ?? "4");
+		// Clamp between 1 and 4
+		return Math.min(4, Math.max(1, isNaN(parsed) ? 4 : parsed));
+	}),
+	soundEnabled: z.boolean().optional().default(false)
+});
+
+// The raw settings type expected from the Stream Deck (mostly strings)
+type RawTimerSettings = z.input<typeof TimerSettingsSchema>;
+// The validated/transformed settings type we use internally (numbers)
+type ParsedTimerSettings = z.output<typeof TimerSettingsSchema>;
 
 enum TimerState {
 	IDLE_WORK,   // Waiting to start Work
@@ -30,12 +48,13 @@ interface TimerContext {
 }
 
 @action({ UUID: "se.oscarb.pomodoro.timer" })
-export class Timer extends SingletonAction<TimerSettings> {
+export class Timer extends SingletonAction<RawTimerSettings> {
 	private contexts = new Map<string, TimerContext>();
 
-	// Default settings
-	private readonly DEFAULT_WORK_MINS = 25;
-	private readonly DEFAULT_BREAK_MINS = 5;
+	// Default settings constants are implicit in the schema now
+	// but we can keep them for reference or fallback if needed
+	// private readonly DEFAULT_WORK_MINS = 25;
+	// private readonly DEFAULT_BREAK_MINS = 5;
 
 	private getContext(ev: any): TimerContext {
 		const id = ev.action.id;
@@ -45,7 +64,7 @@ export class Timer extends SingletonAction<TimerSettings> {
 				state: TimerState.IDLE_WORK,
 				currentCycle: 0,
 				targetEndTime: 0,
-				remainingSeconds: 25 * 60,
+				remainingSeconds: 25 * 60, // Default initial
 				timer: null,
 				pauseAnimationTimer: null,
 				holdTimeout: null,
@@ -57,13 +76,18 @@ export class Timer extends SingletonAction<TimerSettings> {
 		return context;
 	}
 
-	override async onWillAppear(ev: WillAppearEvent<TimerSettings>): Promise<void> {
-		const ctx = this.getContext(ev);
-		this.updateStateFromSettings(ev.payload.settings, ctx);
-		await this.updateView(ev, ctx);
+	private parseSettings(settings: unknown): ParsedTimerSettings {
+		return TimerSettingsSchema.parse(settings || {});
 	}
 
-	override async onWillDisappear(ev: WillDisappearEvent<TimerSettings>): Promise<void> {
+	override async onWillAppear(ev: WillAppearEvent<RawTimerSettings>): Promise<void> {
+		const ctx = this.getContext(ev);
+		const settings = this.parseSettings(ev.payload.settings);
+		this.updateStateFromSettings(settings, ctx);
+		await this.updateView(ev, ctx, settings);
+	}
+
+	override async onWillDisappear(ev: WillDisappearEvent<RawTimerSettings>): Promise<void> {
 		const id = ev.action.id;
 		const ctx = this.contexts.get(id);
 		if (ctx) {
@@ -76,27 +100,30 @@ export class Timer extends SingletonAction<TimerSettings> {
 		}
 	}
 
-	override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<TimerSettings>): Promise<void> {
+	override async onDidReceiveSettings(ev: DidReceiveSettingsEvent<RawTimerSettings>): Promise<void> {
 		const ctx = this.getContext(ev);
-		await this.reset(ev, ctx);
+		const settings = this.parseSettings(ev.payload.settings);
+		await this.reset(ev, ctx, settings);
 	}
 
-	override async onKeyDown(ev: KeyDownEvent<TimerSettings>): Promise<void> {
+	override async onKeyDown(ev: KeyDownEvent<RawTimerSettings>): Promise<void> {
 		const ctx = this.getContext(ev);
+		const settings = this.parseSettings(ev.payload.settings);
 		ctx.didHoldAction = false;
 		// Start long-press detection
 		ctx.holdTimeout = setTimeout(async () => {
 			ctx.didHoldAction = true;
 			if (ctx.state === TimerState.PAUSED_WORK || ctx.state === TimerState.PAUSED_BREAK) {
-				await this.advanceNextStep(ev, ctx);
+				await this.advanceNextStep(ev, ctx, settings);
 			} else {
-				await this.reset(ev, ctx);
+				await this.reset(ev, ctx, settings);
 			}
 		}, 1500); // 1.5s hold to perform action
 	}
 
-	override async onKeyUp(ev: KeyUpEvent<TimerSettings>): Promise<void> {
+	override async onKeyUp(ev: KeyUpEvent<RawTimerSettings>): Promise<void> {
 		const ctx = this.getContext(ev);
+		const settings = this.parseSettings(ev.payload.settings);
 		if (ctx.holdTimeout) {
 			clearTimeout(ctx.holdTimeout);
 			ctx.holdTimeout = null;
@@ -107,64 +134,60 @@ export class Timer extends SingletonAction<TimerSettings> {
 			return;
 		}
 
-		await this.handleShortPress(ev, ctx);
+		await this.handleShortPress(ev, ctx, settings);
 	}
 
-	private async reset(ev: any, ctx: TimerContext) {
+	private async reset(ev: any, ctx: TimerContext, settings: ParsedTimerSettings) {
 		this.stopTimer(ctx);
 		this.stopPauseAnimation(ctx);
 		ctx.state = TimerState.IDLE_WORK;
 		ctx.currentCycle = 0;
-		const workMins = parseInt(ev.payload.settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
-		ctx.remainingSeconds = workMins * 60;
-		await this.updateView(ev, ctx);
+		ctx.remainingSeconds = settings.workTime * 60;
+		await this.updateView(ev, ctx, settings);
 	}
 
-	private async advanceNextStep(ev: any, ctx: TimerContext) {
+	private async advanceNextStep(ev: any, ctx: TimerContext, settings: ParsedTimerSettings) {
 		this.stopPauseAnimation(ctx);
-		await this.handleTimerComplete(ev, ctx);
+		await this.handleTimerComplete(ev, ctx, settings);
 	}
 
-	private async handleShortPress(ev: KeyUpEvent<TimerSettings>, ctx: TimerContext) {
-		const workMins = parseInt(ev.payload.settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
-		const breakMins = parseInt(ev.payload.settings.breakTime ?? "5") || this.DEFAULT_BREAK_MINS;
-
+	private async handleShortPress(ev: any, ctx: TimerContext, settings: ParsedTimerSettings) {
 		switch (ctx.state) {
 			case TimerState.IDLE_WORK:
 				ctx.state = TimerState.RUNNING_WORK;
-				ctx.remainingSeconds = workMins * 60;
-				this.startTimer(ev, ctx, ctx.remainingSeconds);
+				ctx.remainingSeconds = settings.workTime * 60;
+				this.startTimer(ev, ctx, ctx.remainingSeconds, settings);
 				break;
 			case TimerState.RUNNING_WORK:
 				ctx.state = TimerState.PAUSED_WORK;
 				this.stopTimer(ctx); // Pause
-				this.startPauseAnimation(ev, ctx);
+				this.startPauseAnimation(ev, ctx, settings);
 				break;
 			case TimerState.PAUSED_WORK:
 				ctx.state = TimerState.RUNNING_WORK;
 				this.stopPauseAnimation(ctx);
-				this.startTimer(ev, ctx, ctx.remainingSeconds); // Resume
+				this.startTimer(ev, ctx, ctx.remainingSeconds, settings); // Resume
 				break;
 			case TimerState.IDLE_BREAK:
 				ctx.state = TimerState.RUNNING_BREAK;
-				ctx.remainingSeconds = breakMins * 60;
-				this.startTimer(ev, ctx, ctx.remainingSeconds);
+				ctx.remainingSeconds = settings.breakTime * 60;
+				this.startTimer(ev, ctx, ctx.remainingSeconds, settings);
 				break;
 			case TimerState.RUNNING_BREAK:
 				ctx.state = TimerState.PAUSED_BREAK;
 				this.stopTimer(ctx); // Pause
-				this.startPauseAnimation(ev, ctx);
+				this.startPauseAnimation(ev, ctx, settings);
 				break;
 			case TimerState.PAUSED_BREAK:
 				ctx.state = TimerState.RUNNING_BREAK;
 				this.stopPauseAnimation(ctx);
-				this.startTimer(ev, ctx, ctx.remainingSeconds); // Resume
+				this.startTimer(ev, ctx, ctx.remainingSeconds, settings); // Resume
 				break;
 		}
-		await this.updateView(ev, ctx);
+		await this.updateView(ev, ctx, settings);
 	}
 
-	private startTimer(ev: any, ctx: TimerContext, durationSeconds: number) {
+	private startTimer(ev: any, ctx: TimerContext, durationSeconds: number, settings: ParsedTimerSettings) {
 		if (ctx.timer) clearInterval(ctx.timer);
 		this.stopPauseAnimation(ctx);
 
@@ -179,11 +202,11 @@ export class Timer extends SingletonAction<TimerSettings> {
 			if (diffMs <= 0) {
 				this.stopTimer(ctx);
 				ctx.remainingSeconds = 0;
-				await this.handleTimerComplete(ev, ctx);
+				await this.handleTimerComplete(ev, ctx, settings);
 			} else {
 				ctx.remainingSeconds = diffSec;
 				// Pass exact float for smooth animation
-				await this.updateView(ev, ctx, diffMs / 1000);
+				await this.updateView(ev, ctx, settings, diffMs / 1000);
 			}
 		}, 50);
 	}
@@ -195,10 +218,10 @@ export class Timer extends SingletonAction<TimerSettings> {
 		}
 	}
 
-	private startPauseAnimation(ev: any, ctx: TimerContext) {
+	private startPauseAnimation(ev: any, ctx: TimerContext, settings: ParsedTimerSettings) {
 		if (ctx.pauseAnimationTimer) clearInterval(ctx.pauseAnimationTimer);
 		ctx.pauseAnimationTimer = setInterval(async () => {
-			await this.updateView(ev, ctx);
+			await this.updateView(ev, ctx, settings);
 		}, 50);
 	}
 
@@ -209,26 +232,23 @@ export class Timer extends SingletonAction<TimerSettings> {
 		}
 	}
 
-	private async handleTimerComplete(ev: any, ctx: TimerContext) {
-		if (ev.payload.settings.soundEnabled === true) {
+	private async handleTimerComplete(ev: any, ctx: TimerContext, settings: ParsedTimerSettings) {
+		if (settings.soundEnabled) {
 			exec("afplay /System/Library/Sounds/Glass.aiff"); // Built-in macOS sound
 		}
 
 		if (ctx.state === TimerState.RUNNING_WORK || ctx.state === TimerState.PAUSED_WORK) {
 			ctx.state = TimerState.IDLE_BREAK;
-			const breakMins = parseInt(ev.payload.settings.breakTime ?? "5") || this.DEFAULT_BREAK_MINS;
-			ctx.remainingSeconds = breakMins * 60;
+			ctx.remainingSeconds = settings.breakTime * 60;
 		} else if (ctx.state === TimerState.RUNNING_BREAK || ctx.state === TimerState.PAUSED_BREAK) {
 			ctx.state = TimerState.IDLE_WORK;
-			const numCycles = parseInt(ev.payload.settings.numCycles ?? "4") || 4;
-			ctx.currentCycle = (ctx.currentCycle + 1) % numCycles; // Increment cycle after break
-			const workMins = parseInt(ev.payload.settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
-			ctx.remainingSeconds = workMins * 60;
+			ctx.currentCycle = (ctx.currentCycle + 1) % settings.numCycles; // Increment cycle after break
+			ctx.remainingSeconds = settings.workTime * 60;
 		}
-		await this.updateView(ev, ctx);
+		await this.updateView(ev, ctx, settings);
 	}
 
-	private async updateView(ev: any, ctx: TimerContext, exactSeconds?: number) {
+	private async updateView(ev: any, ctx: TimerContext, settings: ParsedTimerSettings, exactSeconds?: number) {
 		const now = Date.now();
 		// Use exactSeconds for progress bar if available, otherwise use remainingSeconds
 		const secs = exactSeconds !== undefined ? exactSeconds : ctx.remainingSeconds;
@@ -236,7 +256,7 @@ export class Timer extends SingletonAction<TimerSettings> {
 		const title = this.formatTime(ctx.remainingSeconds); // Title always uses integer seconds
 		await ev.action.setTitle("");
 
-		const totalSeconds = this.getTotalSecondsForCurrentState(ev.payload.settings, ctx);
+		const totalSeconds = this.getTotalSecondsForCurrentState(ctx, settings);
 		const progress = Math.max(0, Math.min(1, secs / totalSeconds));
 
 		// Content opacity for transition at 60s (fade out "1" as it hits 60)
@@ -305,32 +325,36 @@ export class Timer extends SingletonAction<TimerSettings> {
 
 		ctx.lastState = newState;
 
-		const numCycles = Math.min(4, Math.max(1, parseInt(ev.payload.settings.numCycles ?? "4") || 4));
-		const svg = this.generateSvg(progress, ctx.state, title, ctx.remainingSeconds < 60, contentOpacity, globalOpacity, numCycles, pulseOpacity, indicatorOpacity, ctx);
+		const svg = this.generateSvg(
+			progress,
+			ctx.state,
+			title,
+			ctx.remainingSeconds < 60,
+			contentOpacity,
+			globalOpacity,
+			settings.numCycles,
+			pulseOpacity,
+			indicatorOpacity,
+			ctx
+		);
 		const icon = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 		await ev.action.setImage(icon);
 	}
 
-	private updateStateFromSettings(settings: TimerSettings, ctx: TimerContext) {
+	private updateStateFromSettings(settings: ParsedTimerSettings, ctx: TimerContext) {
 		// If we are IDLE, ensure remaining matches settings
-		const workMins = parseInt(settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
-		const breakMins = parseInt(settings.breakTime ?? "5") || this.DEFAULT_BREAK_MINS;
-
 		if (ctx.state === TimerState.IDLE_WORK) {
-			ctx.remainingSeconds = workMins * 60;
+			ctx.remainingSeconds = settings.workTime * 60;
 		} else if (ctx.state === TimerState.IDLE_BREAK) {
-			ctx.remainingSeconds = breakMins * 60;
+			ctx.remainingSeconds = settings.breakTime * 60;
 		}
 	}
 
-	private getTotalSecondsForCurrentState(settings: TimerSettings, ctx: TimerContext): number {
-		const workMins = parseInt(settings.workTime ?? "25") || this.DEFAULT_WORK_MINS;
-		const breakMins = parseInt(settings.breakTime ?? "5") || this.DEFAULT_BREAK_MINS;
-
+	private getTotalSecondsForCurrentState(ctx: TimerContext, settings: ParsedTimerSettings): number {
 		if ([TimerState.RUNNING_WORK, TimerState.IDLE_WORK, TimerState.PAUSED_WORK].includes(ctx.state)) {
-			return workMins * 60;
+			return settings.workTime * 60;
 		} else {
-			return breakMins * 60;
+			return settings.breakTime * 60;
 		}
 	}
 
