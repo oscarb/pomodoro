@@ -1,11 +1,15 @@
 {
     "scripts": {
         "build": "rollup -c",
+        "lint": "eslint --max-warnings 0",
         "watch": "rollup -c -w --watch.onEnd=\"streamdeck restart se.oscarb.pomodoro\""
     },
+    "prettier": "@elgato/prettier-config",
     "type": "module",
     "devDependencies": {
         "@elgato/cli": "^1.6.0",
+        "@elgato/eslint-config": "^0.3.1",
+        "@elgato/prettier-config": "^0.3.3",
         "@rollup/plugin-commonjs": "^28.0.0",
         "@rollup/plugin-node-resolve": "^15.2.2",
         "@rollup/plugin-terser": "^0.4.4",
