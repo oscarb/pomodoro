@@ -1,4 +1,5 @@
 {
+	"$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
 	"Name": "Pomodoro",
 	"Version": "0.1.0.0",
 	"Author": "oscarb",
