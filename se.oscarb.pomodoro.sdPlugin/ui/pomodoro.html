@@ -4,7 +4,7 @@
 <head lang="en">
     <title>Pomodoro Settings</title>
     <meta charset="utf-8" />
-    <script src="https://sdpi-components.dev/releases/v4/sdpi-components.js"></script>
+    <script src="sdpi-components.js"></script>
 </head>
 
 <body>
@@ -18,8 +18,7 @@
         <sdpi-textfield setting="numCycles" placeholder="4" type="number" min="1" max="4"></sdpi-textfield>
     </sdpi-item>
     <sdpi-item label="Sound">
-        <sdpi-checkbox setting="soundEnabled"></sdpi-checkbox>
-        <label for="soundEnabled">Play sound on finish</label>
+        <sdpi-checkbox setting="soundEnabled" label="Play sound on finish"></sdpi-checkbox>
     </sdpi-item>
 </body>
 
